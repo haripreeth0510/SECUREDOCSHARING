@@ -1,0 +1,16 @@
+# Secrets: never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Build and test output
+bin/
+*.out
+coverage.out
+*.test
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log

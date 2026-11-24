@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: securedoc
+          POSTGRES_PASSWORD: securedoc_dev
+          POSTGRES_DB: securedocsharing
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U securedoc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      APP_ENV: test
+      APP_PORT: "8081"
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USER: securedoc
+      DB_PASSWORD: securedoc_dev
+      DB_NAME: securedocsharing
+      DB_SSLMODE: disable
+      DATABASE_URL: postgres://securedoc:securedoc_dev@localhost:5432/securedocsharing?sslmode=disable
+      REDIS_ADDR: localhost:6379
+      REDIS_PASSWORD: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test with race detector and coverage
+        run: |
+          go test -race -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tail -n 1
+
+      - name: Vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

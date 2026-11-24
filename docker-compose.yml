@@ -1,0 +1,16 @@
+# Redis only. PostgreSQL 16 runs locally (managed in pgAdmin 4).
+services:
+  redis:
+    image: redis:8.2-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis_data:

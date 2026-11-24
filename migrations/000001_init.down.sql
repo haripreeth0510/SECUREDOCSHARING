@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS audit_logs CASCADE;
+DROP TABLE IF EXISTS otp_challenges;
+DROP TABLE IF EXISTS document_shares;
+DROP TABLE IF EXISTS documents;
+DROP TABLE IF EXISTS consent_log;
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS users;
