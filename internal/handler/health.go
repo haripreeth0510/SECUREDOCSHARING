@@ -5,18 +5,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
-type HealthHandler struct {
-	db    *pgxpool.Pool
-	redis *redis.Client
+// Check is one named readiness dependency.
+type Check struct {
+	Name string
+	Ping func(ctx context.Context) error
 }
 
-func NewHealthHandler(db *pgxpool.Pool, redis *redis.Client) *HealthHandler {
-	return &HealthHandler{db: db, redis: redis}
+type HealthHandler struct {
+	checks []Check
+}
+
+// NewHealthHandler reports ready only when every check passes.
+func NewHealthHandler(checks ...Check) *HealthHandler {
+	return &HealthHandler{checks: checks}
 }
 
 func (h *HealthHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -24,38 +27,34 @@ func (h *HealthHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ready", h.Ready)
 }
 
+// Health is liveness: the process is up. It checks no dependencies, so a
+// database blip does not get the container restarted.
 func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// Ready is readiness: every dependency answers. Failures say which
+// dependency is down but never include error details.
 func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	status := map[string]string{
-		"status":   "ok",
-		"database": "ok",
-		"redis":    "ok",
-	}
+	status := map[string]string{"status": "ok"}
 	code := http.StatusOK
-
-	if err := h.db.Ping(ctx); err != nil {
-		status["status"] = "degraded"
-		status["database"] = "unreachable"
-		code = http.StatusServiceUnavailable
+	for _, c := range h.checks {
+		if err := c.Ping(ctx); err != nil {
+			status[c.Name] = "unreachable"
+			status["status"] = "degraded"
+			code = http.StatusServiceUnavailable
+			continue
+		}
+		status[c.Name] = "ok"
 	}
-
-	if err := h.redis.Ping(ctx).Err(); err != nil {
-		status["status"] = "degraded"
-		status["redis"] = "unreachable"
-		code = http.StatusServiceUnavailable
-	}
-
 	writeJSON(w, code, status)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }

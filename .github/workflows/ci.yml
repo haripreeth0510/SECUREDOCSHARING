@@ -45,6 +45,12 @@ jobs:
       DATABASE_URL: postgres://securedoc:securedoc_dev@localhost:5432/securedocsharing?sslmode=disable
       REDIS_ADDR: localhost:6379
       REDIS_PASSWORD: ""
+      # Test-only signing key; real environments read JWT_SECRET from Key Vault.
+      JWT_SECRET: ci-only-test-secret-not-used-anywhere-else-0123456789
+      # Azurite emulator and a throwaway local KEK.
+      AZURITE_BLOB_ENDPOINT: http://127.0.0.1:10000/devstoreaccount1
+      AZURE_STORAGE_CONTAINER: documents-ci
+      LOCAL_KEK: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
 
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +58,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      # Azurite runs as a step, not a service, because it needs command-line flags.
+      - name: Start Azurite (Blob Storage emulator)
+        run: |
+          docker run -d --name azurite -p 10000:10000 mcr.microsoft.com/azure-storage/azurite:latest \
+            azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck
+          for i in $(seq 1 30); do nc -z localhost 10000 && break; sleep 1; done
 
       - name: Download dependencies
         run: go mod download
@@ -64,6 +77,12 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+      - name: Apply migrations
+        run: |
+          for f in migrations/*.up.sql; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+          done
 
       - name: Test with race detector and coverage
         run: |
