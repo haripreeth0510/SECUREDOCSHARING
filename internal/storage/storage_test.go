@@ -110,3 +110,43 @@ func TestConfigValidation(t *testing.T) {
 		}
 	}
 }
+
+// TestAzureLive runs only against a real storage account (AZURE_STORAGE_ACCOUNT
+// set, az login / Managed Identity available): keyless auth, put, get, delete.
+func TestAzureLive(t *testing.T) {
+	acct := os.Getenv("AZURE_STORAGE_ACCOUNT")
+	if acct == "" {
+		t.Skip("AZURE_STORAGE_ACCOUNT not set")
+	}
+	container := os.Getenv("AZURE_STORAGE_CONTAINER")
+	if container == "" {
+		container = "documents"
+	}
+	s, err := storage.NewAzure(storage.Config{AccountURL: "https://" + acct + ".blob.core.windows.net/", Container: container})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := s.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	name := "live-test/" + randHex(8) + ".bin"
+	data := []byte("live test " + randHex(16))
+	if err := s.Put(ctx, name, bytes.NewReader(data)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Delete(context.Background(), name) })
+	rc, err := s.Get(ctx, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(rc)
+	_ = rc.Close()
+	if !bytes.Equal(got, data) {
+		t.Fatal("round trip mismatch")
+	}
+	if err := s.Delete(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+}
