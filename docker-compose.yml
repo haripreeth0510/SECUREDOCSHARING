@@ -1,4 +1,4 @@
-# Redis only. PostgreSQL 16 runs locally (managed in pgAdmin 4).
+# Redis and the Azure Blob Storage emulator. PostgreSQL 16 runs locally (managed in pgAdmin 4).
 services:
   redis:
     image: redis:8.2-alpine
@@ -12,5 +12,16 @@ services:
       timeout: 5s
       retries: 5
 
+  # Local stand-in for Azure Blob Storage. Blob service only, loopback only.
+  # Its account key is Microsoft's published development key, not a secret.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data --skipApiVersionCheck
+    ports:
+      - "127.0.0.1:10000:10000"
+    volumes:
+      - azurite_data:/data
+
 volumes:
   redis_data:
+  azurite_data:

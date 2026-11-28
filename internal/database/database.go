@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -29,20 +31,28 @@ func NewPool(ctx context.Context, cfg config.DatabaseConfig) (*pgxpool.Pool, err
 		return nil, fmt.Errorf("create pool: %w", err)
 	}
 
-	if err := pool.Ping(ctx); err != nil {
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		pool.Close() // do not leak the pool when the database is unreachable
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
 	return pool, nil
 }
 
+// RunMigrations applies every pending migration in ./migrations.
 func RunMigrations(cfg config.DatabaseConfig) error {
-	dsn := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
-		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name, cfg.SSLMode,
-	)
+	// Build the URL with net/url so passwords containing @ : / # are escaped correctly.
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(cfg.User, cfg.Password),
+		Host:     net.JoinHostPort(cfg.Host, cfg.Port),
+		Path:     "/" + cfg.Name,
+		RawQuery: url.Values{"sslmode": {cfg.SSLMode}}.Encode(),
+	}
 
-	m, err := migrate.New("file://migrations", dsn)
+	m, err := migrate.New("file://migrations", u.String())
 	if err != nil {
 		return fmt.Errorf("create migrator: %w", err)
 	}
